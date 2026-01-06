@@ -205,7 +205,7 @@ def main():
     parser.add_argument("query", nargs="*", help="Natural language description of what you want to do")
     parser.add_argument("--config", action="store_true", help="Reconfigure")
     parser.add_argument("--lang", action="store_true", help="Change language")
-    parser.add_argument("--max-retries", type=int, default=3, help="Max retries")
+    parser.add_argument("--max-retries", type=int, default=10, help="Max retries")
     parser.add_argument("--version", action="store_true", help="Show version")
     
     args = parser.parse_args()

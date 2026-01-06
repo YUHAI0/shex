@@ -39,11 +39,12 @@ LANGUAGES = {
 2. 失败时自动尝试其他方法，最多重试 {max_retries} 次
 3. 只有在确实无法完成时才告知用户原因
 4. 成功后简洁报告结果，不要问"还需要什么帮助"
-5. 只输出纯文本，不要使用 markdown 格式
 
 危险命令处理：
 - 设置 is_dangerous=true，系统会自动向用户确认
-- 直接调用工具，不要在回复中询问"""
+- 直接调用工具，不要在回复中询问
+
+【严格要求】严禁使用任何 markdown 格式！禁止：代码块(```)、标题(#)、列表(- *)、加粗(**)、斜体(*)、链接等。只能输出纯文本。"""
     },
     "en": {
         "name": "English",
@@ -80,11 +81,12 @@ Guidelines:
 2. On failure, try alternative methods, max {max_retries} retries
 3. Only report failure when truly unable to complete
 4. Report results briefly after success, don't ask "anything else?"
-5. Output plain text only, no markdown formatting
 
 Dangerous commands:
 - Set is_dangerous=true, system will auto-confirm with user
-- Call tools directly, don't ask in response"""
+- Call tools directly, don't ask in response
+
+[STRICT RULE] Never use any markdown formatting! Forbidden: code blocks(```), headers(#), lists(- *), bold(**), italic(*), links, etc. Output plain text only."""
     }
 }
 

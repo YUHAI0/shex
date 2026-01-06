@@ -21,30 +21,39 @@ if _env_path.exists():
 # 默认程序配置（不包含 language，首次运行时让用户选择）
 DEFAULT_CONFIG = {
     "command_timeout": 60,
-    "max_retries": 3
+    "max_retries": 10
 }
 
 
 def load_config() -> dict:
-    """从 config.json 加载程序配置"""
+    """从 config.json 加载程序配置，自动合并默认配置"""
     config_path = get_config_path()
+    
+    # 从默认配置开始
+    config = DEFAULT_CONFIG.copy()
     
     if config_path.exists():
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                loaded = json.load(f)
+                config.update(loaded)
         except (json.JSONDecodeError, IOError):
             pass
     
-    return {}
+    return config
 
 
 def save_config(config: dict):
-    """保存程序配置到 config.json"""
+    """保存程序配置到 config.json，自动合并默认配置"""
     ensure_app_dir()
     config_path = get_config_path()
+    
+    # 确保包含所有默认配置
+    full_config = DEFAULT_CONFIG.copy()
+    full_config.update(config)
+    
     with open(config_path, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+        json.dump(full_config, f, indent=2, ensure_ascii=False)
 
 
 def needs_language_setup() -> bool:
@@ -96,4 +105,4 @@ class AgentConfig:
     """Agent 配置"""
     llm: LLMConfig = field(default_factory=LLMConfig)
     command_timeout: int = field(default_factory=lambda: get_config_value("command_timeout", 60))
-    max_retries: int = field(default_factory=lambda: get_config_value("max_retries", 3))
+    max_retries: int = field(default_factory=lambda: get_config_value("max_retries", 10))
