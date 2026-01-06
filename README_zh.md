@@ -1,5 +1,7 @@
 # Shex
 
+[English](README.md)
+
 [![PyPI version](https://img.shields.io/pypi/v/shex.svg)](https://pypi.org/project/shex/)
 [![Python](https://img.shields.io/pypi/pyversions/shex.svg)](https://pypi.org/project/shex/)
 [![Downloads](https://static.pepy.tech/badge/shex)](https://pepy.tech/project/shex)
