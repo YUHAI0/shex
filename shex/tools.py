@@ -9,7 +9,162 @@ import os
 import sys
 import locale
 import threading
+import select
 from typing import Callable
+
+# Linux/Unix 上使用 pty 模块
+if platform.system() != "Windows":
+    import pty
+    import fcntl
+    import struct
+    import termios
+
+
+def process_carriage_return(text: str) -> str:
+    """
+    处理包含 \\r (回车) 的文本，模拟终端对进度条的显示行为
+    
+    进度条通常使用 \\r 回到行首覆盖之前的内容，本函数将：
+    - 同一行内的多次 \\r 覆盖合并为最终显示内容
+    - 保留正常的换行符 \\n
+    
+    Args:
+        text: 包含 \\r 的原始文本
+        
+    Returns:
+        处理后的文本，只保留最终显示内容
+    """
+    if '\r' not in text:
+        return text
+    
+    lines = []
+    current_line = ""
+    
+    i = 0
+    while i < len(text):
+        char = text[i]
+        
+        if char == '\n':
+            # 换行：保存当前行并开始新行
+            lines.append(current_line)
+            current_line = ""
+        elif char == '\r':
+            # 检查是否是 \r\n (Windows 换行)
+            if i + 1 < len(text) and text[i + 1] == '\n':
+                lines.append(current_line)
+                current_line = ""
+                i += 1  # 跳过 \n
+            else:
+                # 单独的 \r：回到行首（清空当前行以准备覆盖）
+                current_line = ""
+        else:
+            current_line += char
+        
+        i += 1
+    
+    # 添加最后一行（如果有）
+    if current_line:
+        lines.append(current_line)
+    
+    return '\n'.join(lines)
+
+
+def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
+    """
+    使用 PTY（伪终端）执行命令，支持进度条等交互式输出
+    仅在 Linux/Unix 上使用
+    """
+    import time
+    
+    master_fd, slave_fd = pty.openpty()
+    
+    # 设置终端大小（可选，某些程序需要）
+    try:
+        winsize = struct.pack('HHHH', 24, 80, 0, 0)  # rows, cols, xpixel, ypixel
+        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
+    except Exception:
+        pass
+    
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        close_fds=True,
+        executable='/bin/bash'
+    )
+    
+    os.close(slave_fd)
+    
+    # 设置非阻塞读取
+    flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+    fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    
+    output_data = []
+    start_time = time.time()
+    
+    try:
+        while True:
+            # 检查超时
+            if time.time() - start_time > timeout:
+                process.kill()
+                os.close(master_fd)
+                return {
+                    "success": False,
+                    "output": process_carriage_return(''.join(output_data)),
+                    "error": f"命令执行超时（{timeout}秒）",
+                    "return_code": -2
+                }
+            
+            # 检查是否有数据可读
+            ready, _, _ = select.select([master_fd], [], [], 0.1)
+            if ready:
+                try:
+                    data = os.read(master_fd, 4096)
+                    if data:
+                        text = data.decode(encoding, errors='replace')
+                        output_data.append(text)
+                        # 直接输出到终端（保留原始格式，包括 \r）
+                        sys.stdout.write(text)
+                        sys.stdout.flush()
+                except OSError:
+                    break
+            
+            # 检查进程是否结束
+            if process.poll() is not None:
+                # 读取剩余输出
+                while True:
+                    ready, _, _ = select.select([master_fd], [], [], 0.1)
+                    if ready:
+                        try:
+                            data = os.read(master_fd, 4096)
+                            if data:
+                                text = data.decode(encoding, errors='replace')
+                                output_data.append(text)
+                                sys.stdout.write(text)
+                                sys.stdout.flush()
+                            else:
+                                break
+                        except OSError:
+                            break
+                    else:
+                        break
+                break
+    finally:
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+    
+    output_text = process_carriage_return(''.join(output_data))
+    
+    return {
+        "success": process.returncode == 0,
+        "output": output_text,
+        "error": "",  # PTY 模式下 stderr 合并到 stdout
+        "return_code": process.returncode
+    }
 
 
 def execute_command(
@@ -47,29 +202,30 @@ def execute_command(
         else:
             encoding = 'utf-8'
         
-        # 使用 Popen 实时输出
-        if platform.system() == "Windows":
-            process = subprocess.Popen(
-                command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                encoding=encoding,
-                errors='replace'
-            )
-        else:
-            process = subprocess.Popen(
-                command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                encoding=encoding,
-                errors='replace',
-                executable='/bin/bash'
-            )
+        # Linux/Unix 使用 PTY（伪终端）来支持进度条等交互式输出
+        if platform.system() != "Windows":
+            return _execute_with_pty(command, encoding, timeout)
+        
+        # Windows 使用普通的 Popen
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding=encoding,
+            errors='replace'
+        )
         
         stdout_data = []
         stderr_data = []
+        
+        # 在 Windows 上启用 ANSI 转义序列支持
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        except Exception:
+            pass
         
         def read_stdout():
             while True:
@@ -77,7 +233,16 @@ def execute_command(
                 if not char:
                     break
                 stdout_data.append(char)
-                print(char, end='', flush=True)
+                
+                if char == '\r':
+                    sys.stdout.write('\x1b[2K\r')
+                    sys.stdout.flush()
+                elif char == '\n':
+                    sys.stdout.write('\n')
+                    sys.stdout.flush()
+                else:
+                    sys.stdout.write(char)
+                    sys.stdout.flush()
         
         def read_stderr():
             while True:
@@ -85,7 +250,16 @@ def execute_command(
                 if not char:
                     break
                 stderr_data.append(char)
-                print(char, end='', file=sys.stderr, flush=True)
+                
+                if char == '\r':
+                    sys.stderr.write('\x1b[2K\r')
+                    sys.stderr.flush()
+                elif char == '\n':
+                    sys.stderr.write('\n')
+                    sys.stderr.flush()
+                else:
+                    sys.stderr.write(char)
+                    sys.stderr.flush()
         
         stdout_thread = threading.Thread(target=read_stdout)
         stderr_thread = threading.Thread(target=read_stderr)
@@ -101,7 +275,7 @@ def execute_command(
             stderr_thread.join(timeout=1)
             return {
                 "success": False,
-                "output": ''.join(stdout_data),
+                "output": process_carriage_return(''.join(stdout_data)),
                 "error": f"命令执行超时（{timeout}秒）",
                 "return_code": -2
             }
@@ -109,10 +283,13 @@ def execute_command(
         stdout_thread.join()
         stderr_thread.join()
         
+        stdout_text = process_carriage_return(''.join(stdout_data))
+        stderr_text = process_carriage_return(''.join(stderr_data))
+        
         return {
             "success": process.returncode == 0,
-            "output": ''.join(stdout_data),
-            "error": ''.join(stderr_data),
+            "output": stdout_text,
+            "error": stderr_text,
             "return_code": process.returncode
         }
         
