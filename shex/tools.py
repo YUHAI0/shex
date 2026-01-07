@@ -75,6 +75,7 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
     仅在 Linux/Unix 上使用
     """
     import time
+    import re
     
     master_fd, slave_fd = pty.openpty()
     
@@ -103,13 +104,51 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
     
     output_data = []
     start_time = time.time()
+    last_output_time = time.time()
+    
+    # 交互提示检测模式（需要精确匹配避免误触发）
+    interactive_patterns = [
+        r'\[Y/n\]\s*$',                    # apt: [Y/n]
+        r'\[y/N\]\s*$',                    # [y/N]
+        r'\[N/y\]\s*$',                    # [N/y]
+        r'\[yes/no\]\s*$',                 # [yes/no]
+        r'\(yes/no\)\s*$',                 # (yes/no)
+        r'\[Y/n/\?\]\s*$',                 # pacman 等
+        r'\(y/n\)\s*$',                    # (y/n)
+        r'password\s*(for\s+\S+)?:\s*$',   # 密码提示
+        r'passphrase.*:\s*$',              # SSH passphrase
+        r'continue\?\s*',                  # continue?
+        r'proceed\?\s*',                   # proceed?
+        r'overwrite\?.*$',                 # overwrite?
+        r'enter.*:\s*$',                   # Enter xxx:
+        r'input.*:\s*$',                   # Input xxx:
+    ]
+    
+    waiting_for_input = False
+    
+    def check_interactive_prompt(current_output: str) -> bool:
+        """检查是否有交互提示"""
+        recent_output = current_output[-500:] if len(current_output) > 500 else current_output
+        for pattern in interactive_patterns:
+            if re.search(pattern, recent_output, re.IGNORECASE):
+                return True
+        return False
+    
+    def read_user_input_and_send():
+        """读取用户输入并发送到子进程"""
+        nonlocal waiting_for_input
+        try:
+            user_input = input()
+            os.write(master_fd, (user_input + '\n').encode(encoding))
+            waiting_for_input = False
+        except (EOFError, OSError):
+            pass
     
     try:
         while True:
             # 检查超时
             if time.time() - start_time > timeout:
                 process.kill()
-                os.close(master_fd)
                 return {
                     "success": False,
                     "output": process_carriage_return(''.join(output_data)),
@@ -128,8 +167,21 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
                         # 直接输出到终端（保留原始格式，包括 \r）
                         sys.stdout.write(text)
                         sys.stdout.flush()
+                        last_output_time = time.time()
                 except OSError:
                     break
+            else:
+                # 没有新输出，检查是否在等待交互
+                # 如果超过 0.5 秒没有新输出且进程还在运行，检查交互提示
+                if (time.time() - last_output_time > 0.5 and 
+                    process.poll() is None and 
+                    output_data and
+                    not waiting_for_input):
+                    current_output = ''.join(output_data)
+                    if check_interactive_prompt(current_output):
+                        waiting_for_input = True
+                        read_user_input_and_send()
+                        last_output_time = time.time()  # 重置时间
             
             # 检查进程是否结束
             if process.poll() is not None:
