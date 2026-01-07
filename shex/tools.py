@@ -125,6 +125,7 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
     ]
     
     waiting_for_input = False
+    skip_echo_bytes = 0  # 需要跳过的回显字节数
     
     def check_interactive_prompt(current_output: str) -> bool:
         """检查是否有交互提示"""
@@ -136,10 +137,13 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
     
     def read_user_input_and_send():
         """读取用户输入并发送到子进程"""
-        nonlocal waiting_for_input
+        nonlocal waiting_for_input, skip_echo_bytes
         try:
             user_input = input()
-            os.write(master_fd, (user_input + '\n').encode(encoding))
+            data_to_send = user_input + '\n'
+            os.write(master_fd, data_to_send.encode(encoding))
+            # PTY 会回显输入，需要跳过这些字节
+            skip_echo_bytes = len(data_to_send.encode(encoding))
             waiting_for_input = False
         except (EOFError, OSError):
             pass
@@ -162,11 +166,21 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
                 try:
                     data = os.read(master_fd, 4096)
                     if data:
-                        text = data.decode(encoding, errors='replace')
-                        output_data.append(text)
-                        # 直接输出到终端（保留原始格式，包括 \r）
-                        sys.stdout.write(text)
-                        sys.stdout.flush()
+                        # 跳过用户输入的回显
+                        if skip_echo_bytes > 0:
+                            if len(data) <= skip_echo_bytes:
+                                skip_echo_bytes -= len(data)
+                                data = b''
+                            else:
+                                data = data[skip_echo_bytes:]
+                                skip_echo_bytes = 0
+                        
+                        if data:
+                            text = data.decode(encoding, errors='replace')
+                            output_data.append(text)
+                            # 直接输出到终端（保留原始格式，包括 \r）
+                            sys.stdout.write(text)
+                            sys.stdout.flush()
                         last_output_time = time.time()
                 except OSError:
                     break
