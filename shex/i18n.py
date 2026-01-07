@@ -28,6 +28,8 @@ LANGUAGES = {
         "init_failed": "❌ 初始化失败",
         "exec_failed": "执行失败，已重试 {count} 次",
         "timeout": "处理超时",
+        "command_timeout": "命令执行超时（{timeout}秒）",
+        "user_cancelled": "用户取消执行危险命令",
         # Agent prompt
         "agent_prompt": """你是一个命令行助手，直接执行用户请求的操作。
 
@@ -44,7 +46,9 @@ LANGUAGES = {
 - 设置 is_dangerous=true，系统会自动向用户确认
 - 直接调用工具，不要在回复中询问
 
-【严格要求】严禁使用任何 markdown 格式！禁止：代码块(```)、标题(#)、列表(- *)、加粗(**)、斜体(*)、链接等。只能输出纯文本。"""
+【严格要求】
+1. 严禁使用任何 markdown 格式！禁止：代码块(```)、标题(#)、列表(- *)、加粗(**)、斜体(*)、链接等。只能输出纯文本。
+2. 必须使用中文回复用户。"""
     },
     "en": {
         "name": "English",
@@ -70,6 +74,8 @@ LANGUAGES = {
         "init_failed": "❌ Initialization failed",
         "exec_failed": "Execution failed after {count} retries",
         "timeout": "Processing timeout",
+        "command_timeout": "Command execution timeout ({timeout}s)",
+        "user_cancelled": "User cancelled dangerous command execution",
         # Agent prompt
         "agent_prompt": """You are a command-line assistant that directly executes user requests.
 
@@ -86,7 +92,9 @@ Dangerous commands:
 - Set is_dangerous=true, system will auto-confirm with user
 - Call tools directly, don't ask in response
 
-[STRICT RULE] Never use any markdown formatting! Forbidden: code blocks(```), headers(#), lists(- *), bold(**), italic(*), links, etc. Output plain text only."""
+[STRICT RULES]
+1. Never use any markdown formatting! Forbidden: code blocks(```), headers(#), lists(- *), bold(**), italic(*), links, etc. Output plain text only.
+2. You MUST respond in English only."""
     }
 }
 

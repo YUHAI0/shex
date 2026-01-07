@@ -11,6 +11,7 @@ import locale
 import threading
 import select
 from typing import Callable
+from .i18n import t
 
 # Linux/Unix 上使用 pty 模块
 if platform.system() != "Windows":
@@ -156,7 +157,7 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
                 return {
                     "success": False,
                     "output": process_carriage_return(''.join(output_data)),
-                    "error": f"命令执行超时（{timeout}秒）",
+                    "error": t("command_timeout", timeout=timeout),
                     "return_code": -2
                 }
             
@@ -257,24 +258,22 @@ def execute_command(
             return {
                 "success": False,
                 "output": "",
-                "error": "用户取消执行危险命令",
+                "error": t("user_cancelled"),
                 "return_code": -1
             }
     
     try:
-        # 获取系统编码
-        if platform.system() == "Windows":
-            encoding = locale.getpreferredencoding(False)
-        else:
-            encoding = 'utf-8'
-        
         # Linux/Unix 使用 PTY（伪终端）来支持进度条等交互式输出
         if platform.system() != "Windows":
-            return _execute_with_pty(command, encoding, timeout)
+            return _execute_with_pty(command, 'utf-8', timeout)
         
-        # Windows 使用普通的 Popen
+        # Windows：强制使用 UTF-8 编码 (chcp 65001)
+        # 这样可以避免 GBK/CP936 编码问题
+        wrapped_command = f'cmd /c "chcp 65001 >nul && {command}"'
+        encoding = 'utf-8'
+        
         process = subprocess.Popen(
-            command,
+            wrapped_command,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -299,7 +298,6 @@ def execute_command(
                 if not char:
                     break
                 stdout_data.append(char)
-                
                 if char == '\r':
                     sys.stdout.write('\x1b[2K\r')
                     sys.stdout.flush()
@@ -316,7 +314,6 @@ def execute_command(
                 if not char:
                     break
                 stderr_data.append(char)
-                
                 if char == '\r':
                     sys.stderr.write('\x1b[2K\r')
                     sys.stderr.flush()
@@ -342,7 +339,7 @@ def execute_command(
             return {
                 "success": False,
                 "output": process_carriage_return(''.join(stdout_data)),
-                "error": f"命令执行超时（{timeout}秒）",
+                "error": t("command_timeout", timeout=timeout),
                 "return_code": -2
             }
         

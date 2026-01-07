@@ -185,7 +185,7 @@ class ShexAgent:
                         if not output.get("success", True):
                             retry_count += 1
                             if retry_count > self.config.max_retries:
-                                return f"执行失败，已重试 {retry_count - 1} 次"
+                                return t("exec_failed", count=retry_count - 1)
             else:
                 # 非流式
                 response = self._call_llm(stream=False)
@@ -222,9 +222,9 @@ class ShexAgent:
                     if not output.get("success", True):
                         retry_count += 1
                         if retry_count > self.config.max_retries:
-                            return f"执行失败，已重试 {retry_count - 1} 次"
+                            return t("exec_failed", count=retry_count - 1)
         
-        return "处理超时"
+        return t("timeout")
     
     def clear_history(self):
         """清空对话历史"""
