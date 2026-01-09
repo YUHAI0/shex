@@ -5,7 +5,10 @@
 [![PyPI version](https://img.shields.io/pypi/v/shex.svg)](https://pypi.org/project/shex/)
 [![Python](https://img.shields.io/pypi/pyversions/shex.svg)](https://pypi.org/project/shex/)
 [![Downloads](https://static.pepy.tech/badge/shex)](https://pepy.tech/project/shex)
-[![License](https://img.shields.io/pypi/l/shex.svg)](https://github.com/meyuh/shex/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/shex.svg)](https://github.com/YUHAI0/shex/blob/main/LICENSE)
+[![GitHub issues](https://img.shields.io/github/issues/YUHAI0/shex)](https://github.com/YUHAI0/shex/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/YUHAI0/shex)](https://github.com/YUHAI0/shex/commits)
+[![GitHub stars](https://img.shields.io/github/stars/YUHAI0/shex?style=social)](https://github.com/YUHAI0/shex/stargazers)
 
 **Natural language command-line assistant powered by LLM**
 

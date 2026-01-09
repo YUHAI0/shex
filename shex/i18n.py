@@ -24,6 +24,7 @@ LANGUAGES = {
         "invalid_input": "无效输入",
         # 执行相关
         "confirm_execute": "确认执行? (y/n): ",
+        "continue_retry": "已重试 {count} 次仍未成功，是否继续尝试? (y/n): ",
         "cancelled": "已取消",
         "init_failed": "❌ 初始化失败",
         "exec_failed": "执行失败，已重试 {count} 次",
@@ -40,7 +41,7 @@ LANGUAGES = {
 1. 直接执行，不要询问用户确认或提问
 2. 失败时自动尝试其他方法，最多重试 {max_retries} 次
 3. 只有在确实无法完成时才告知用户原因
-4. 成功后简洁报告结果，不要问"还需要什么帮助"
+4. 成功后简洁报告结果即可结束
 
 危险命令处理：
 - 设置 is_dangerous=true，系统会自动向用户确认
@@ -48,7 +49,8 @@ LANGUAGES = {
 
 【严格要求】
 1. 严禁使用任何 markdown 格式！禁止：代码块(```)、标题(#)、列表(- *)、加粗(**)、斜体(*)、链接等。只能输出纯文本。
-2. 必须使用中文回复用户。"""
+2. 必须使用中文回复用户。
+3. 【绝对禁止】在回复末尾提出任何问题或询问！禁止说"还需要什么帮助吗"、"需要我做什么吗"、"有什么问题吗"等任何形式的提问。执行完毕后直接结束，不要追问！"""
     },
     "en": {
         "name": "English",
@@ -70,6 +72,7 @@ LANGUAGES = {
         "invalid_input": "Invalid input",
         # Execution
         "confirm_execute": "Confirm execution? (y/n): ",
+        "continue_retry": "Failed after {count} retries, continue trying? (y/n): ",
         "cancelled": "Cancelled",
         "init_failed": "❌ Initialization failed",
         "exec_failed": "Execution failed after {count} retries",
@@ -86,7 +89,7 @@ Guidelines:
 1. Execute directly, don't ask for confirmation or questions
 2. On failure, try alternative methods, max {max_retries} retries
 3. Only report failure when truly unable to complete
-4. Report results briefly after success, don't ask "anything else?"
+4. Report results briefly after success and end
 
 Dangerous commands:
 - Set is_dangerous=true, system will auto-confirm with user
@@ -94,7 +97,8 @@ Dangerous commands:
 
 [STRICT RULES]
 1. Never use any markdown formatting! Forbidden: code blocks(```), headers(#), lists(- *), bold(**), italic(*), links, etc. Output plain text only.
-2. You MUST respond in English only."""
+2. You MUST respond in English only.
+3. [ABSOLUTELY FORBIDDEN] Never ask any questions at the end of your response! Never say "need anything else?", "want me to do anything?", "any questions?", etc. Just finish after completing the task, do not follow up with questions!"""
     }
 }
 

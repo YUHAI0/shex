@@ -188,6 +188,17 @@ def confirm_dangerous(command: str) -> bool:
             return False
 
 
+def confirm_continue(retry_count: int) -> bool:
+    """询问是否继续重试"""
+    from .i18n import t
+    while True:
+        response = input(colorize(f"\n{t('continue_retry', count=retry_count)}", "yellow")).strip().lower()
+        if response in ['y', 'yes', '是']:
+            return True
+        elif response in ['n', 'no', '否']:
+            return False
+
+
 def main():
     """主函数"""
     # 首次运行时选择语言
@@ -205,7 +216,7 @@ def main():
     parser.add_argument("query", nargs="*", help="Natural language description of what you want to do")
     parser.add_argument("--config", action="store_true", help="Reconfigure")
     parser.add_argument("--lang", action="store_true", help="Change language")
-    parser.add_argument("--max-retries", type=int, default=10, help="Max retries")
+    parser.add_argument("--max-retries", type=int, default=30, help="Max retries")
     parser.add_argument("--version", action="store_true", help="Show version")
     
     args = parser.parse_args()
@@ -251,6 +262,7 @@ def main():
         agent = ShexAgent(config=config)
         agent.set_confirm_fn(confirm_dangerous)
         agent.set_stream_fn(lambda x: print(x, end='', flush=True))
+        agent.set_continue_fn(confirm_continue)
     except Exception as e:
         logger.error(f"Init failed: {e}")
         print(colorize(f"{t('init_failed')}: {e}", "red"))

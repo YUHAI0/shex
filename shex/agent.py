@@ -26,6 +26,7 @@ class ShexAgent:
         self.messages = []
         self.confirm_fn = None  # 危险命令确认函数
         self.stream_fn = None   # 流式输出函数
+        self.continue_fn = None # 询问是否继续重试函数
         self._init_system_message()
     
     def _init_system_message(self):
@@ -42,6 +43,10 @@ class ShexAgent:
     def set_stream_fn(self, fn: Callable[[str], None]):
         """设置流式输出函数"""
         self.stream_fn = fn
+    
+    def set_continue_fn(self, fn: Callable[[int], bool]):
+        """设置询问是否继续重试函数"""
+        self.continue_fn = fn
     
     def _call_llm(self, stream: bool = False):
         """调用大模型"""
@@ -106,9 +111,9 @@ class ShexAgent:
         })
         
         retry_count = 0
-        max_iterations = self.config.max_retries + 5
+        total_retries = 0  # 总重试次数
         
-        for _ in range(max_iterations):
+        while True:
             # 调用大模型
             if self.stream_fn:
                 # 流式输出
@@ -184,8 +189,12 @@ class ShexAgent:
                         output = json.loads(result["output"])
                         if not output.get("success", True):
                             retry_count += 1
-                            if retry_count > self.config.max_retries:
-                                return t("exec_failed", count=retry_count - 1)
+                            total_retries += 1
+                            if retry_count >= self.config.max_retries:
+                                if self.continue_fn and self.continue_fn(total_retries):
+                                    retry_count = 0  # 重置计数器，继续尝试
+                                else:
+                                    return t("exec_failed", count=total_retries)
             else:
                 # 非流式
                 response = self._call_llm(stream=False)
@@ -221,10 +230,12 @@ class ShexAgent:
                     output = json.loads(result["output"])
                     if not output.get("success", True):
                         retry_count += 1
-                        if retry_count > self.config.max_retries:
-                            return t("exec_failed", count=retry_count - 1)
-        
-        return t("timeout")
+                        total_retries += 1
+                        if retry_count >= self.config.max_retries:
+                            if self.continue_fn and self.continue_fn(total_retries):
+                                retry_count = 0  # 重置计数器，继续尝试
+                            else:
+                                return t("exec_failed", count=total_retries)
     
     def clear_history(self):
         """清空对话历史"""

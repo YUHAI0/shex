@@ -21,7 +21,7 @@ if _env_path.exists():
 # 默认程序配置（不包含 language，首次运行时让用户选择）
 DEFAULT_CONFIG = {
     "command_timeout": 60,
-    "max_retries": 10
+    "max_retries": 30
 }
 
 
@@ -105,4 +105,4 @@ class AgentConfig:
     """Agent 配置"""
     llm: LLMConfig = field(default_factory=LLMConfig)
     command_timeout: int = field(default_factory=lambda: get_config_value("command_timeout", 60))
-    max_retries: int = field(default_factory=lambda: get_config_value("max_retries", 10))
+    max_retries: int = field(default_factory=lambda: get_config_value("max_retries", 30))
