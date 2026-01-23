@@ -123,3 +123,9 @@ MIT
 ## Contributing
 
 Issues and pull requests are welcome!
+
+---
+
+<p align="center">
+If this project has been helpful to you, please give it a ⭐️ to show your support!
+</p>
