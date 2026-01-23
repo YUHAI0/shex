@@ -13,8 +13,8 @@ import argparse
 import logging
 from datetime import datetime
 
-from .paths import ensure_log_dir, get_env_path, ensure_app_dir, get_history_path
-from .config import AgentConfig, LLMConfig, needs_language_setup, save_config, load_config
+from .paths import ensure_log_dir, get_env_path, ensure_app_dir, get_history_path, get_context_path
+from .config import AgentConfig, LLMConfig, needs_language_setup, save_config, load_config, get_config_value
 
 
 # 设置日志
@@ -158,6 +158,11 @@ def setup_config_wizard() -> bool:
     
     print(f"\n{t('config_selected')}: {colorize(selected['display'], 'green')}")
     
+    # 配置上下文选项
+    print(colorize(f"\n{t('config_context_option') if t('config_context_option') != 'config_context_option' else 'Enable Context Memory? (Default: Yes)'}", "yellow"))
+    context_choice = input(colorize("Enable context? [Y/n]: ", "yellow")).strip().lower()
+    enable_context = context_choice not in ['n', 'no', '否']
+    
     if selected["name"] == "custom":
         print(colorize(f"\n{t('config_custom')}", "yellow"))
         selected["base_url"] = input(t('config_api_url')).strip()
@@ -180,6 +185,9 @@ def setup_config_wizard() -> bool:
     ensure_app_dir()
     env_path = get_env_path()
     
+    # 保存 config.json
+    save_config({"enable_context": enable_context})
+
     lines = [
         "# Shex Config",
         f"# Model: {selected['display']}",
@@ -243,6 +251,8 @@ def main():
     parser.add_argument("--config", action="store_true", help="Reconfigure")
     parser.add_argument("--lang", action="store_true", help="Change language")
     parser.add_argument("--max-retries", type=int, default=30, help="Max retries")
+    parser.add_argument("--no-context", action="store_true", help="Disable context loading/saving")
+    parser.add_argument("--clear-context", action="store_true", help="Clear context history")
     parser.add_argument("--version", action="store_true", help="Show version")
     
     args = parser.parse_args()
@@ -258,6 +268,19 @@ def main():
     
     if args.config:
         setup_config_wizard()
+        sys.exit(0)
+
+    # 处理上下文清理
+    if args.clear_context:
+        context_path = get_context_path()
+        if context_path.exists():
+            try:
+                os.remove(context_path)
+                print(colorize(f"{t('context_cleared') if 't' in locals() else 'Context cleared'}", "green"))
+            except Exception as e:
+                print(colorize(f"Failed to clear context: {e}", "red"))
+        else:
+            print(colorize(f"{t('context_empty') if 't' in locals() else 'Context is empty'}", "yellow"))
         sys.exit(0)
     
     # 合并所有参数为一个查询字符串
@@ -292,6 +315,13 @@ def main():
         agent.set_confirm_fn(confirm_dangerous)
         agent.set_stream_fn(lambda x: print(x, end='', flush=True))
         agent.set_continue_fn(confirm_continue)
+
+        # 加载上下文
+        enable_context = get_config_value("enable_context", True)
+        if enable_context and not args.no_context:
+            context_path = get_context_path()
+            agent.load_context(context_path)
+
     except Exception as e:
         logger.error(f"Init failed: {e}")
         print(colorize(f"{t('init_failed')}: {e}", "red"))
@@ -301,6 +331,12 @@ def main():
     try:
         result = agent.run(query)
         logger.info(f"Execution completed")
+
+        # 保存上下文
+        if enable_context and not args.no_context:
+            context_path = get_context_path()
+            agent.save_context(context_path)
+
     except KeyboardInterrupt:
         print(colorize(f"\n{t('cancelled')}", "yellow"))
         sys.exit(0)

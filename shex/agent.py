@@ -4,7 +4,7 @@ Shex Agent 核心模块
 """
 
 import json
-from typing import Callable
+from typing import Callable, List
 from openai import OpenAI
 from .config import AgentConfig
 from .tools import TOOLS, execute_command, get_system_info
@@ -240,3 +240,55 @@ class ShexAgent:
     def clear_history(self):
         """清空对话历史"""
         self._init_system_message()
+
+    def save_context(self, path):
+        """保存上下文到文件"""
+        try:
+            # 只保存非 system 消息
+            context_messages = [m for m in self.messages if m.get("role") != "system"]
+            
+            # 根据配置的轮数限制上下文
+            # 一轮对话通常包括 User 提问及后续的 Assistant 回复/Tool calls
+            # 简单起见，我们假设每轮平均产生 2-4 条消息（视 Tool calls 而定）
+            # 这里我们尝试从后往前查找 User 消息，保留最近 N 个 User 消息之后的所有内容
+            
+            max_turns = self.config.max_context_turns
+            user_msg_indices = [i for i, m in enumerate(context_messages) if m.get("role") == "user"]
+            
+            if len(user_msg_indices) > max_turns:
+                # 找到倒数第 N 个 User 消息的索引
+                # 注意：如果 max_turns 为 0，-0 会被当作 0，导致切片错误
+                if max_turns > 0:
+                    start_index = user_msg_indices[-max_turns]
+                    context_messages = context_messages[start_index:]
+                else:
+                    context_messages = []
+            elif max_turns <= 0:
+                context_messages = []
+            
+            # 兜底策略：防止单轮对话过长导致 Context 无限膨胀
+            # 强制限制最大消息数量（例如 50 条，大约对应 10-20 轮复杂对话或 25 轮简单对话）
+            if len(context_messages) > 50:
+                context_messages = context_messages[-50:]
+                
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(context_messages, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            # 上下文保存失败不应影响主流程
+            pass
+
+    def load_context(self, path):
+        """从文件加载上下文"""
+        try:
+            if not path.exists():
+                return
+                
+            with open(path, 'r', encoding='utf-8') as f:
+                context_messages = json.load(f)
+            
+            if isinstance(context_messages, list):
+                # 过滤掉可能的 system 消息（以防万一）
+                valid_messages = [m for m in context_messages if m.get("role") != "system"]
+                self.messages.extend(valid_messages)
+        except Exception:
+            pass

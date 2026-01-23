@@ -57,6 +57,11 @@ def get_history_path() -> Path:
     return Path.home() / ".shex_history"
 
 
+def get_context_path() -> Path:
+    """获取上下文文件路径"""
+    return get_app_dir() / "context.json"
+
+
 def ensure_app_dir() -> Path:
     """
     确保程序数据目录存在

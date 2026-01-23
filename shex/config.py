@@ -21,7 +21,9 @@ if _env_path.exists():
 # 默认程序配置（不包含 language，首次运行时让用户选择）
 DEFAULT_CONFIG = {
     "command_timeout": 60,
-    "max_retries": 30
+    "max_retries": 30,
+    "enable_context": True,
+    "max_context_turns": 5
 }
 
 
@@ -37,6 +39,18 @@ def load_config() -> dict:
             with open(config_path, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
                 config.update(loaded)
+            
+            # 检查是否需要更新配置文件（缺少默认配置项）
+            # 只有当文件存在时才自动更新，避免在首次配置前创建文件
+            needs_save = False
+            for key in DEFAULT_CONFIG:
+                if key not in loaded:
+                    needs_save = True
+                    break
+            
+            if needs_save:
+                save_config(config)
+                
         except (json.JSONDecodeError, IOError):
             pass
     
@@ -106,3 +120,4 @@ class AgentConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     command_timeout: int = field(default_factory=lambda: get_config_value("command_timeout", 60))
     max_retries: int = field(default_factory=lambda: get_config_value("max_retries", 30))
+    max_context_turns: int = field(default_factory=lambda: get_config_value("max_context_turns", 5))
