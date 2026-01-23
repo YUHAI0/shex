@@ -13,7 +13,7 @@ import argparse
 import logging
 from datetime import datetime
 
-from .paths import ensure_log_dir, get_env_path, ensure_app_dir
+from .paths import ensure_log_dir, get_env_path, ensure_app_dir, get_history_path
 from .config import AgentConfig, LLMConfig, needs_language_setup, save_config, load_config
 
 
@@ -38,6 +38,32 @@ def setup_logger():
 
 
 logger = setup_logger()
+
+
+def save_history(query: str):
+    """保存命令历史"""
+    try:
+        history_path = get_history_path()
+        # 避免重复记录最后一条
+        if history_path.exists():
+            try:
+                # 读取最后一行
+                import collections
+                with open(history_path, 'r', encoding='utf-8') as f:
+                    try:
+                        last_line = collections.deque(f, 1)[0].strip()
+                        if last_line == query:
+                            return
+                    except IndexError:
+                        pass # 文件为空
+            except Exception:
+                pass
+
+        with open(history_path, "a", encoding="utf-8") as f:
+            f.write(f"{query}\n")
+    except Exception as e:
+        # 历史记录失败不应影响主程序
+        logger.warning(f"Failed to save history: {e}")
 
 
 def colorize(text: str, color: str) -> str:
@@ -242,6 +268,9 @@ def main():
         sys.exit(0)
     
     logger.info(f"User input: {query}")
+    
+    # 保存历史
+    save_history(query)
     
     # 加载配置
     llm_config = LLMConfig.from_env()

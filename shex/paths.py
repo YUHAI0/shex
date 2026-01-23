@@ -52,6 +52,11 @@ def get_log_dir() -> Path:
     return get_app_dir() / "logs"
 
 
+def get_history_path() -> Path:
+    """获取历史记录文件路径"""
+    return Path.home() / ".shex_history"
+
+
 def ensure_app_dir() -> Path:
     """
     确保程序数据目录存在
