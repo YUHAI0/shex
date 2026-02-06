@@ -313,9 +313,25 @@ class ShexAgent:
                 context_messages = []
             
             # 兜底策略：防止单轮对话过长导致 Context 无限膨胀
-            # 强制限制最大消息数量（例如 50 条，大约对应 10-20 轮复杂对话或 25 轮简单对话）
+            # 强制限制最大消息数量（例如 50 条），但必须保证切片后的第一条是 User 消息
             if len(context_messages) > 50:
-                context_messages = context_messages[-50:]
+                # 先截取最后 50 条
+                candidate_messages = context_messages[-50:]
+                
+                # 找到第一条 User 消息
+                start_index = -1
+                for i, msg in enumerate(candidate_messages):
+                    if msg.get("role") == "user":
+                        start_index = i
+                        break
+                
+                if start_index != -1:
+                    context_messages = candidate_messages[start_index:]
+                else:
+                    # 如果最后 50 条里没有 user 消息，说明上下文结构异常或单轮过长
+                    # 为了安全（避免 orphaned tool calls），清空或仅保留最近几条（如果不含 tool）
+                    # 这里选择清空，让模型重新开始
+                    context_messages = []
                 
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(context_messages, f, ensure_ascii=False, indent=2)
@@ -335,6 +351,12 @@ class ShexAgent:
             if isinstance(context_messages, list):
                 # 过滤掉可能的 system 消息（以防万一）
                 valid_messages = [m for m in context_messages if m.get("role") != "system"]
+                
+                # 修复：确保上下文以 User 消息开始
+                # 这可以防止加载因切片错误而产生的孤立 tool/assistant 消息
+                while valid_messages and valid_messages[0].get("role") != "user":
+                    valid_messages.pop(0)
+                
                 self.messages.extend(valid_messages)
         except Exception:
             pass
