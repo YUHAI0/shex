@@ -180,9 +180,8 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
                         if data:
                             text = data.decode(encoding, errors='replace')
                             output_data.append(text)
-                            # 直接输出到终端
                             if spinner:
-                                spinner.write(text)
+                                spinner.write(text, color="\033[96m")
                             else:
                                 sys.stdout.write(text)
                                 sys.stdout.flush()
@@ -214,7 +213,7 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
                                 text = data.decode(encoding, errors='replace')
                                 output_data.append(text)
                                 if spinner:
-                                    spinner.write(text)
+                                    spinner.write(text, color="\033[96m")
                                 else:
                                     sys.stdout.write(text)
                                     sys.stdout.flush()
@@ -276,7 +275,10 @@ def execute_command(
     try:
         # Linux/Unix 使用 PTY（伪终端）来支持进度条等交互式输出
         if platform.system() != "Windows":
-            return _execute_with_pty(command, 'utf-8', timeout, spinner)
+            result = _execute_with_pty(command, 'utf-8', timeout, spinner)
+            if spinner:
+                spinner.stop()
+            return result
         
         # Windows：尝试设置编码并执行
         # 注意：不要使用 cmd /c "..." 包裹整个命令，因为内部的双引号会与命令中的双引号冲突
