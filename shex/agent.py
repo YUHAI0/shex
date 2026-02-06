@@ -27,6 +27,9 @@ class ShexAgent:
         self.confirm_fn = None  # 危险命令确认函数
         self.stream_fn = None   # 流式输出函数
         self.continue_fn = None # 询问是否继续重试函数
+        self.start_spinner = None # 启动加载动画函数
+        self.stop_spinner = None  # 停止加载动画函数
+        self.next_spinner_message = None # 下一次加载动画的消息
         self._init_system_message()
     
     def _init_system_message(self):
@@ -47,6 +50,11 @@ class ShexAgent:
     def set_continue_fn(self, fn: Callable[[int], bool]):
         """设置询问是否继续重试函数"""
         self.continue_fn = fn
+
+    def set_spinner(self, start_fn: Callable[[str], None], stop_fn: Callable[[], None]):
+        """设置加载动画函数"""
+        self.start_spinner = start_fn
+        self.stop_spinner = stop_fn
     
     def _call_llm(self, stream: bool = False):
         """调用大模型"""
@@ -117,33 +125,55 @@ class ShexAgent:
             # 调用大模型
             if self.stream_fn:
                 # 流式输出
-                response = self._call_llm(stream=True)
-                
-                full_content = ""
-                tool_calls = []
-                
-                for chunk in response:
-                    delta = chunk.choices[0].delta
+                try:
+                    if self.start_spinner:
+                        msg = self.next_spinner_message or (t("thinking") if t else "Thinking...")
+                        self.start_spinner(msg)
+                        self.next_spinner_message = None # 重置消息
+                        
+                    response = self._call_llm(stream=True)
                     
-                    if delta.content:
-                        full_content += delta.content
-                        self.stream_fn(delta.content)
+                    full_content = ""
+                    tool_calls = []
                     
-                    if delta.tool_calls:
-                        for tc in delta.tool_calls:
-                            if tc.index is not None:
-                                while len(tool_calls) <= tc.index:
-                                    tool_calls.append({
-                                        "id": "",
-                                        "function": {"name": "", "arguments": ""}
-                                    })
-                                if tc.id:
-                                    tool_calls[tc.index]["id"] = tc.id
-                                if tc.function:
-                                    if tc.function.name:
-                                        tool_calls[tc.index]["function"]["name"] = tc.function.name
-                                    if tc.function.arguments:
-                                        tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                    first_chunk = True
+                    
+                    for chunk in response:
+                        if first_chunk:
+                            if self.stop_spinner:
+                                self.stop_spinner()
+                            first_chunk = False
+
+                        delta = chunk.choices[0].delta
+                        
+                        if delta.content:
+                            full_content += delta.content
+                            self.stream_fn(delta.content)
+                        
+                        if delta.tool_calls:
+                            for tc in delta.tool_calls:
+                                if tc.index is not None:
+                                    while len(tool_calls) <= tc.index:
+                                        tool_calls.append({
+                                            "id": "",
+                                            "function": {"name": "", "arguments": ""}
+                                        })
+                                    if tc.id:
+                                        tool_calls[tc.index]["id"] = tc.id
+                                    if tc.function:
+                                        if tc.function.name:
+                                            tool_calls[tc.index]["function"]["name"] = tc.function.name
+                                        if tc.function.arguments:
+                                            tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                    
+                    # 确保 spinner 停止（如果 response 为空）
+                    if first_chunk and self.stop_spinner:
+                        self.stop_spinner()
+
+                except Exception:
+                    if self.stop_spinner:
+                        self.stop_spinner()
+                    raise
                 
                 # 构建 assistant 消息
                 assistant_message = {"role": "assistant", "content": full_content or None}
@@ -185,6 +215,9 @@ class ShexAgent:
                             "tool_call_id": result["tool_call_id"],
                             "content": result["output"]
                         })
+
+                        # 设置下一次思考的消息状态
+                        self.next_spinner_message = t("analyzing")
                         
                         output = json.loads(result["output"])
                         if not output.get("success", True):
@@ -197,7 +230,17 @@ class ShexAgent:
                                     return t("exec_failed", count=total_retries)
             else:
                 # 非流式
-                response = self._call_llm(stream=False)
+                try:
+                    if self.start_spinner:
+                        msg = self.next_spinner_message or (t("thinking") if t else "Thinking...")
+                        self.start_spinner(msg)
+                        self.next_spinner_message = None # 重置消息
+                    
+                    response = self._call_llm(stream=False)
+                finally:
+                    if self.stop_spinner:
+                        self.stop_spinner()
+                        
                 message = response.choices[0].message
                 
                 self.messages.append({
@@ -226,6 +269,9 @@ class ShexAgent:
                         "tool_call_id": result["tool_call_id"],
                         "content": result["output"]
                     })
+
+                    # 设置下一次思考的消息状态
+                    self.next_spinner_message = t("analyzing")
                     
                     output = json.loads(result["output"])
                     if not output.get("success", True):

@@ -242,6 +242,7 @@ def main():
     # 延迟导入（需要在语言设置后）
     from .agent import ShexAgent
     from .i18n import t
+    from .spinner import Spinner
     
     parser = argparse.ArgumentParser(
         description="Shex - Natural Language Command Line Assistant",
@@ -315,6 +316,9 @@ def main():
         agent.set_confirm_fn(confirm_dangerous)
         agent.set_stream_fn(lambda x: print(x, end='', flush=True))
         agent.set_continue_fn(confirm_continue)
+
+        spinner = Spinner()
+        agent.set_spinner(spinner.start, spinner.stop)
 
         # 加载上下文
         enable_context = get_config_value("enable_context", True)

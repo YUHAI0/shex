@@ -12,6 +12,7 @@ import threading
 import select
 from typing import Callable
 from .i18n import t
+from .spinner import Spinner
 
 # Linux/Unix 上使用 pty 模块
 if platform.system() != "Windows":
@@ -70,7 +71,7 @@ def process_carriage_return(text: str) -> str:
     return '\n'.join(lines)
 
 
-def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
+def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinner = None) -> dict:
     """
     使用 PTY（伪终端）执行命令，支持进度条等交互式输出
     仅在 Linux/Unix 上使用
@@ -179,9 +180,12 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
                         if data:
                             text = data.decode(encoding, errors='replace')
                             output_data.append(text)
-                            # 直接输出到终端（保留原始格式，包括 \r）
-                            sys.stdout.write(text)
-                            sys.stdout.flush()
+                            # 直接输出到终端
+                            if spinner:
+                                spinner.write(text)
+                            else:
+                                sys.stdout.write(text)
+                                sys.stdout.flush()
                         last_output_time = time.time()
                 except OSError:
                     break
@@ -209,8 +213,11 @@ def _execute_with_pty(command: str, encoding: str, timeout: int) -> dict:
                             if data:
                                 text = data.decode(encoding, errors='replace')
                                 output_data.append(text)
-                                sys.stdout.write(text)
-                                sys.stdout.flush()
+                                if spinner:
+                                    spinner.write(text)
+                                else:
+                                    sys.stdout.write(text)
+                                    sys.stdout.flush()
                             else:
                                 break
                         except OSError:
@@ -261,28 +268,39 @@ def execute_command(
                 "error": t("user_cancelled"),
                 "return_code": -1
             }
+            
+    # 初始化并启动 Spinner
+    spinner = Spinner(t("executing"), delay=0.1)
+    spinner.start()
     
     try:
         # Linux/Unix 使用 PTY（伪终端）来支持进度条等交互式输出
         if platform.system() != "Windows":
-            return _execute_with_pty(command, 'utf-8', timeout)
+            return _execute_with_pty(command, 'utf-8', timeout, spinner)
         
-        # Windows：强制使用 UTF-8 编码 (chcp 65001)
-        # 这样可以避免 GBK/CP936 编码问题
-        wrapped_command = f'cmd /c "chcp 65001 >nul && {command}"'
+        # Windows：尝试设置编码并执行
+        # 注意：不要使用 cmd /c "..." 包裹整个命令，因为内部的双引号会与命令中的双引号冲突
+        # 导致管道符 | 等被外层 cmd 错误解释
+        if is_dangerous:
+            # 危险命令如果不包含 chcp 可能乱码，但为了安全性优先保证命令结构正确
+            # 或者我们也可以用 chcp && command 的形式
+            wrapped_command = f'chcp 65001 >nul && {command}'
+        else:
+            wrapped_command = f'chcp 65001 >nul && {command}'
+            
         encoding = 'utf-8'
         
         process = subprocess.Popen(
             wrapped_command,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT, # 合并 stderr 到 stdout
             encoding=encoding,
             errors='replace'
         )
         
         stdout_data = []
-        stderr_data = []
+        # stderr_data 不再需要，因为合并了
         
         # 在 Windows 上启用 ANSI 转义序列支持
         try:
@@ -294,48 +312,32 @@ def execute_command(
         
         def read_stdout():
             while True:
+                # 尝试读取较大的块，减少锁的竞争
                 char = process.stdout.read(1)
                 if not char:
                     break
                 stdout_data.append(char)
-                if char == '\r':
-                    sys.stdout.write('\x1b[2K\r')
-                    sys.stdout.flush()
-                elif char == '\n':
-                    sys.stdout.write('\n')
-                    sys.stdout.flush()
-                else:
-                    sys.stdout.write(char)
-                    sys.stdout.flush()
+                
+                # 使用青色输出命令结果 (\033[96m)
+                spinner.write(char, sys.stdout, color="\033[96m")
         
-        def read_stderr():
-            while True:
-                char = process.stderr.read(1)
-                if not char:
-                    break
-                stderr_data.append(char)
-                if char == '\r':
-                    sys.stderr.write('\x1b[2K\r')
-                    sys.stderr.flush()
-                elif char == '\n':
-                    sys.stderr.write('\n')
-                    sys.stderr.flush()
-                else:
-                    sys.stderr.write(char)
-                    sys.stderr.flush()
+        # 不再需要 read_stderr 线程
         
         stdout_thread = threading.Thread(target=read_stdout)
-        stderr_thread = threading.Thread(target=read_stderr)
         
         stdout_thread.start()
-        stderr_thread.start()
         
         try:
             process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill()
+            # 停止 Spinner，这将阻止后续的输出写入 stdout
+            if spinner:
+                spinner.stop()
+            
+            # 即使线程还没结束，因为 spinner 已经停止，它们也不会再污染输出了
             stdout_thread.join(timeout=1)
-            stderr_thread.join(timeout=1)
+            
             return {
                 "success": False,
                 "output": process_carriage_return(''.join(stdout_data)),
@@ -344,10 +346,13 @@ def execute_command(
             }
         
         stdout_thread.join()
-        stderr_thread.join()
+
+        # 停止 Spinner
+        if spinner:
+            spinner.stop()
         
         stdout_text = process_carriage_return(''.join(stdout_data))
-        stderr_text = process_carriage_return(''.join(stderr_data))
+        stderr_text = "" # stderr 已合并到 stdout
         
         return {
             "success": process.returncode == 0,
@@ -357,6 +362,8 @@ def execute_command(
         }
         
     except Exception as e:
+        if spinner:
+            spinner.stop()
         return {
             "success": False,
             "output": "",

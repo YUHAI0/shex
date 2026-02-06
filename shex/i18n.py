@@ -34,17 +34,21 @@ LANGUAGES = {
         "timeout": "处理超时",
         "command_timeout": "命令执行超时（{timeout}秒）",
         "user_cancelled": "用户取消执行危险命令",
+        "thinking": "思考中...",
+        "analyzing": "分析执行结果...",
+        "executing": "执行中...",
         # Agent prompt
-        "agent_prompt": """你是一个命令行助手，直接执行用户请求的操作。
+        "agent_prompt": r"""你是一个命令行助手，直接执行用户请求的操作。
 
 系统信息：
 {system_info}
 
 行为准则：
 1. 直接执行，不要询问用户确认或提问
-2. 失败时自动尝试其他方法，最多重试 {max_retries} 次
-3. 只有在确实无法完成时才告知用户原因
-4. 成功后简洁报告结果即可结束
+2. 错误处理：如果命令执行失败（如"command not found"或不支持的参数），**禁止**重复相同的命令！必须分析错误信息，尝试不同的命令、参数或工具来达成目标（例如 Windows 上 ls 失败尝试 dir，grep 失败尝试 findstr）。
+3. Windows PowerShell 特别注意：在双引号字符串内部使用路径时，**严禁**在路径末尾加反斜杠 `\`（例如 `"$path\"` 是错误的），因为这会转义闭合引号导致语法错误！应写成 `"$path"` 或 `"$path\\"`。
+4. 只有在确实无法完成时才告知用户原因
+5. 成功后简洁报告结果即可结束
 
 危险命令处理：
 - 设置 is_dangerous=true，系统会自动向用户确认
@@ -85,6 +89,9 @@ LANGUAGES = {
         "timeout": "Processing timeout",
         "command_timeout": "Command execution timeout ({timeout}s)",
         "user_cancelled": "User cancelled dangerous command execution",
+        "thinking": "Thinking...",
+        "analyzing": "Analyzing execution results...",
+        "executing": "Executing...",
         # Agent prompt
         "agent_prompt": """You are a command-line assistant that directly executes user requests.
 
@@ -93,7 +100,7 @@ System info:
 
 Guidelines:
 1. Execute directly, don't ask for confirmation or questions
-2. On failure, try alternative methods, max {max_retries} retries
+2. Error Handling: If a command fails (e.g., "command not found" or invalid arguments), do **NOT** repeat the exact same command! Analyze the error, and try a DIFFERENT command, argument, or tool (e.g., on Windows try 'dir' if 'ls' fails, or 'findstr' if 'grep' fails).
 3. Only report failure when truly unable to complete
 4. Report results briefly after success and end
 
