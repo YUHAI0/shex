@@ -78,6 +78,7 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
     """
     import time
     import re
+    import tty  # 新增
     
     master_fd, slave_fd = pty.openpty()
     
@@ -88,6 +89,14 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
     except Exception:
         pass
     
+    # 尝试将 stdin 设置为 raw 模式，以便转发所有按键（包括方向键等）
+    old_tty_attrs = None
+    try:
+        old_tty_attrs = termios.tcgetattr(sys.stdin)
+        tty.setraw(sys.stdin.fileno())
+    except Exception:
+        pass
+
     process = subprocess.Popen(
         command,
         shell=True,
@@ -106,49 +115,6 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
     
     output_data = []
     start_time = time.time()
-    last_output_time = time.time()
-    
-    # 交互提示检测模式（需要精确匹配避免误触发）
-    interactive_patterns = [
-        r'\[Y/n\]\s*$',                    # apt: [Y/n]
-        r'\[y/N\]\s*$',                    # [y/N]
-        r'\[N/y\]\s*$',                    # [N/y]
-        r'\[yes/no\]\s*$',                 # [yes/no]
-        r'\(yes/no\)\s*$',                 # (yes/no)
-        r'\[Y/n/\?\]\s*$',                 # pacman 等
-        r'\(y/n\)\s*$',                    # (y/n)
-        r'password\s*(for\s+\S+)?:\s*$',   # 密码提示
-        r'passphrase.*:\s*$',              # SSH passphrase
-        r'continue\?\s*',                  # continue?
-        r'proceed\?\s*',                   # proceed?
-        r'overwrite\?.*$',                 # overwrite?
-        r'enter.*:\s*$',                   # Enter xxx:
-        r'input.*:\s*$',                   # Input xxx:
-    ]
-    
-    waiting_for_input = False
-    skip_echo_bytes = 0  # 需要跳过的回显字节数
-    
-    def check_interactive_prompt(current_output: str) -> bool:
-        """检查是否有交互提示"""
-        recent_output = current_output[-500:] if len(current_output) > 500 else current_output
-        for pattern in interactive_patterns:
-            if re.search(pattern, recent_output, re.IGNORECASE):
-                return True
-        return False
-    
-    def read_user_input_and_send():
-        """读取用户输入并发送到子进程"""
-        nonlocal waiting_for_input, skip_echo_bytes
-        try:
-            user_input = input()
-            data_to_send = user_input + '\n'
-            os.write(master_fd, data_to_send.encode(encoding))
-            # PTY 会回显输入，需要跳过这些字节
-            skip_echo_bytes = len(data_to_send.encode(encoding))
-            waiting_for_input = False
-        except (EOFError, OSError):
-            pass
     
     try:
         while True:
@@ -162,44 +128,49 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
                     "return_code": -2
                 }
             
-            # 检查是否有数据可读
-            ready, _, _ = select.select([master_fd], [], [], 0.1)
-            if ready:
+            # 监听 master_fd (子进程输出) 和 stdin (用户输入)
+            rlist = [master_fd]
+            if old_tty_attrs: # 只有在成功设置 raw 模式后才监听 stdin
+                 rlist.append(sys.stdin)
+            
+            ready, _, _ = select.select(rlist, [], [], 0.1)
+            
+            if master_fd in ready:
                 try:
                     data = os.read(master_fd, 4096)
                     if data:
-                        # 跳过用户输入的回显
-                        if skip_echo_bytes > 0:
-                            if len(data) <= skip_echo_bytes:
-                                skip_echo_bytes -= len(data)
-                                data = b''
-                            else:
-                                data = data[skip_echo_bytes:]
-                                skip_echo_bytes = 0
+                        # 只要有输出，就永久停止 Spinner，避免破坏 TUI 界面
+                        if spinner and spinner.running:
+                            spinner.stop()
                         
-                        if data:
-                            text = data.decode(encoding, errors='replace')
-                            output_data.append(text)
-                            if spinner:
-                                spinner.write(text, color="\033[96m")
-                            else:
-                                sys.stdout.write(text)
-                                sys.stdout.flush()
-                        last_output_time = time.time()
+                        # 在 Raw 模式下，直接写入 stdout（不使用 Spinner.write，避免二次处理）
+                        # 注意：Raw 模式下需要手动处理 \n -> \r\n，但子进程输出通常已经是处理好的
+                        if old_tty_attrs:
+                             # 尝试添加颜色，增强用户体验
+                             # 注意：这可能会在极其罕见的情况下破坏被截断的 ANSI 序列
+                             # 但为了满足用户对颜色的需求，这是一个折衷方案
+                             cyan = b'\x1b[96m'
+                             reset = b'\x1b[0m'
+                             os.write(sys.stdout.fileno(), cyan + data + reset)
+                        else:
+                             # 如果没进入 Raw 模式，使用 spinner.write 打印彩色输出
+                             text = data.decode(encoding, errors='replace')
+                             spinner.write(text, color="\033[96m")
+                        
+                        # 保存输出用于给 LLM
+                        output_data.append(data.decode(encoding, errors='replace'))
+                    else:
+                        break # EOF
                 except OSError:
                     break
-            else:
-                # 没有新输出，检查是否在等待交互
-                # 如果超过 0.5 秒没有新输出且进程还在运行，检查交互提示
-                if (time.time() - last_output_time > 0.5 and 
-                    process.poll() is None and 
-                    output_data and
-                    not waiting_for_input):
-                    current_output = ''.join(output_data)
-                    if check_interactive_prompt(current_output):
-                        waiting_for_input = True
-                        read_user_input_and_send()
-                        last_output_time = time.time()  # 重置时间
+            
+            if sys.stdin in ready:
+                try:
+                    # 读取用户输入直接写入 master_fd
+                    input_data = os.read(sys.stdin.fileno(), 1024)
+                    os.write(master_fd, input_data)
+                except OSError:
+                    pass
             
             # 检查进程是否结束
             if process.poll() is not None:
@@ -210,13 +181,17 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
                         try:
                             data = os.read(master_fd, 4096)
                             if data:
-                                text = data.decode(encoding, errors='replace')
-                                output_data.append(text)
-                                if spinner:
-                                    spinner.write(text, color="\033[96m")
+                                if spinner and spinner.running:
+                                    spinner.stop()
+                                    
+                                if old_tty_attrs:
+                                     cyan = b'\x1b[96m'
+                                     reset = b'\x1b[0m'
+                                     os.write(sys.stdout.fileno(), cyan + data + reset)
                                 else:
-                                    sys.stdout.write(text)
-                                    sys.stdout.flush()
+                                     text = data.decode(encoding, errors='replace')
+                                     spinner.write(text, color="\033[96m")
+                                output_data.append(data.decode(encoding, errors='replace'))
                             else:
                                 break
                         except OSError:
@@ -225,6 +200,10 @@ def _execute_with_pty(command: str, encoding: str, timeout: int, spinner: Spinne
                         break
                 break
     finally:
+        # 恢复终端设置
+        if old_tty_attrs:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tty_attrs)
+        
         try:
             os.close(master_fd)
         except OSError:
