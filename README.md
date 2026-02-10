@@ -5,7 +5,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/shex.svg)](https://pypi.org/project/shex/)
 [![Python](https://img.shields.io/pypi/pyversions/shex.svg)](https://pypi.org/project/shex/)
 [![Downloads](https://static.pepy.tech/badge/shex)](https://pepy.tech/project/shex)
-[![License](https://img.shields.io/pypi/l/shex.svg)](https://github.com/YUHAI0/shex/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/shex.svg)](https://github.com/YUHAI0/shex/blob/master/LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/YUHAI0/shex)](https://github.com/YUHAI0/shex/issues)
 [![GitHub last commit](https://img.shields.io/github/last-commit/YUHAI0/shex)](https://github.com/YUHAI0/shex/commits)
 [![GitHub stars](https://img.shields.io/github/stars/YUHAI0/shex?style=social)](https://github.com/YUHAI0/shex/stargazers)
@@ -25,8 +25,16 @@ Execute system commands using natural language. No need to remember complex comm
 
 ## Installation
 
+You can install or update Shex with a single command. This will download and install the latest version directly from GitHub.
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/YUHAI0/shex/master/scripts/install.ps1 | iex
+```
+
+**Linux/macOS:**
 ```bash
-pip install shex
+curl -fsSL https://raw.githubusercontent.com/YUHAI0/shex/master/scripts/install.sh | bash
 ```
 
 ## Quick Start

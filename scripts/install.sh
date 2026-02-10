@@ -3,12 +3,13 @@ set -e
 
 echo "Starting Shex installation..."
 
-# Navigate to project root if running from scripts directory
+# Determine installation mode (Local or Remote)
+IS_LOCAL=false
 if [ -f "../pyproject.toml" ]; then
     cd ..
-elif [ ! -f "pyproject.toml" ]; then
-    echo "Error: Please run this script from the project root or scripts directory."
-    exit 1
+    IS_LOCAL=true
+elif [ -f "pyproject.toml" ]; then
+    IS_LOCAL=true
 fi
 
 # Check for Python
@@ -23,20 +24,32 @@ fi
 
 echo "Found Python: $($PYTHON --version)"
 
-# Update source code if git repo
-if [ -d ".git" ]; then
-    echo "Updating source code from git..."
-    git pull || echo "Warning: Failed to update source code."
-fi
+if [ "$IS_LOCAL" = true ]; then
+    # Update source code if git repo
+    if [ -d ".git" ]; then
+        echo "Updating source code from git..."
+        git pull || echo "Warning: Failed to update source code."
+    fi
 
-# Install/Upgrade Shex
-echo "Installing/Updating Shex..."
-$PYTHON -m pip install --upgrade pip setuptools wheel
+    # Install/Upgrade Shex from local source
+    echo "Installing/Updating Shex from local source..."
+    $PYTHON -m pip install --upgrade pip setuptools wheel
 
-# Try installing. If permission denied, suggest using sudo or --user
-if ! $PYTHON -m pip install --upgrade .; then
-    echo "Installation failed. Trying with --user..."
-    $PYTHON -m pip install --upgrade --user .
+    # Try installing. If permission denied, suggest using sudo or --user
+    if ! $PYTHON -m pip install --upgrade .; then
+        echo "Installation failed. Trying with --user..."
+        $PYTHON -m pip install --upgrade --user .
+    fi
+else
+    # Remote installation from GitHub
+    echo "Installing/Updating Shex from GitHub..."
+    $PYTHON -m pip install --upgrade pip setuptools wheel
+
+    # Try installing. If permission denied, suggest using sudo or --user
+    if ! $PYTHON -m pip install --upgrade https://github.com/YUHAI0/shex/archive/master.zip; then
+        echo "Installation failed. Trying with --user..."
+        $PYTHON -m pip install --upgrade --user https://github.com/YUHAI0/shex/archive/master.zip
+    fi
 fi
 
 # Verify installation

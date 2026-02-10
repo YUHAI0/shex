@@ -9,12 +9,13 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "Starting Shex installation..." -ForegroundColor Cyan
 
-# Navigate to project root if running from scripts directory
+# Determine installation mode (Local or Remote)
+$isLocal = $false
 if (Test-Path "..\pyproject.toml") {
     Set-Location ..
-} elseif (!(Test-Path "pyproject.toml")) {
-    Write-Error "Please run this script from the project root or scripts directory."
-    exit 1
+    $isLocal = $true
+} elseif (Test-Path "pyproject.toml") {
+    $isLocal = $true
 }
 
 # Check for Python
@@ -26,24 +27,37 @@ try {
     exit 1
 }
 
-# Update source code if git repo
-if (Test-Path ".git") {
-    Write-Host "Updating source code from git..." -ForegroundColor Cyan
-    try {
-        git pull
-    } catch {
-        Write-Warning "Failed to update source code. Proceeding with current version."
+if ($isLocal) {
+    # Update source code if git repo
+    if (Test-Path ".git") {
+        Write-Host "Updating source code from git..." -ForegroundColor Cyan
+        try {
+            git pull
+        } catch {
+            Write-Warning "Failed to update source code. Proceeding with current version."
+        }
     }
-}
-
-# Install/Upgrade Shex
-Write-Host "Installing/Updating Shex..." -ForegroundColor Cyan
-try {
-    python -m pip install --upgrade pip setuptools wheel
-    python -m pip install --upgrade .
-} catch {
-    Write-Error "Installation failed. Please check the error messages above."
-    exit 1
+    
+    # Install/Upgrade Shex from local source
+    Write-Host "Installing/Updating Shex from local source..." -ForegroundColor Cyan
+    try {
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --upgrade .
+    } catch {
+        Write-Error "Installation failed. Please check the error messages above."
+        exit 1
+    }
+} else {
+    # Remote installation from GitHub
+    Write-Host "Installing/Updating Shex from GitHub..." -ForegroundColor Cyan
+    try {
+        python -m pip install --upgrade pip setuptools wheel
+        # Install directly from the main branch archive
+        python -m pip install --upgrade https://github.com/YUHAI0/shex/archive/master.zip
+    } catch {
+        Write-Error "Installation failed. Please check the error messages above."
+        exit 1
+    }
 }
 
 # Verify installation
