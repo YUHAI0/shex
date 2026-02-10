@@ -25,8 +25,6 @@
 
 ## 安装
 
-你可以使用一条命令安装或更新 Shex。这将直接从 GitHub 下载并安装最新版本。
-
 **Windows (PowerShell):**
 ```powershell
 iwr -useb https://raw.githubusercontent.com/YUHAI0/shex/master/scripts/install.ps1 | iex

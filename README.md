@@ -25,8 +25,6 @@ Execute system commands using natural language. No need to remember complex comm
 
 ## Installation
 
-You can install or update Shex with a single command. This will download and install the latest version directly from GitHub.
-
 **Windows (PowerShell):**
 ```powershell
 iwr -useb https://raw.githubusercontent.com/YUHAI0/shex/master/scripts/install.ps1 | iex
