@@ -74,8 +74,22 @@ if (Get-Command shex -ErrorAction SilentlyContinue) {
     
     # Try to find where it is installed
     try {
-        $scriptsDir = python -c "import sys; import os; print(os.path.join(sys.prefix, 'Scripts'))"
-        if (Test-Path "$scriptsDir\shex.exe") {
+        # Get potential installation directories (System and User)
+        $pyCmd = "import sys; import sysconfig; import os; print(os.path.join(sys.prefix, 'Scripts') + '|' + sysconfig.get_path('scripts', 'nt_user'))"
+        $paths = python -c $pyCmd
+        $candidateDirs = $paths -split "\|"
+        
+        $scriptsDir = $null
+        foreach ($dir in $candidateDirs) {
+            # Trim whitespace just in case
+            $dir = $dir.Trim()
+            if (Test-Path "$dir\shex.exe") {
+                $scriptsDir = $dir
+                break
+            }
+        }
+
+        if ($scriptsDir) {
             Write-Host "Found executable at: $scriptsDir\shex.exe" -ForegroundColor Yellow
             
             # Check if already in PATH (User scope)
@@ -89,6 +103,8 @@ if (Get-Command shex -ErrorAction SilentlyContinue) {
             } else {
                 Write-Host "'$scriptsDir' is already in User PATH." -ForegroundColor Gray
             }
+        } else {
+            Write-Warning "Could not find shex.exe in standard Python script locations."
         }
     } catch {
         Write-Warning "Could not determine installation directory or add to PATH."
