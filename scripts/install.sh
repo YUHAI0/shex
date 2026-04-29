@@ -24,6 +24,52 @@ fi
 
 echo "Found Python: $($PYTHON --version)"
 
+add_user_bin_to_path() {
+    local user_bin="$1"
+    local shell_cfg=""
+    local platform
+
+    platform="$(uname -s)"
+
+    case "$SHELL" in
+    */zsh)
+        shell_cfg="$HOME/.zshrc"
+        ;;
+    */bash)
+        case "$platform" in
+        Darwin)
+            shell_cfg="$HOME/.bash_profile"
+            ;;
+        *)
+            shell_cfg="$HOME/.bashrc"
+            ;;
+        esac
+        ;;
+    *)
+        echo "Could not detect bash or zsh. Please add '$user_bin' to your PATH manually."
+        return
+        ;;
+    esac
+
+    if [ ! -f "$shell_cfg" ]; then
+        touch "$shell_cfg"
+    fi
+
+    if grep -Fq "$user_bin" "$shell_cfg"; then
+        echo "'$user_bin' is already in $shell_cfg"
+    else
+        echo "Adding '$user_bin' to $shell_cfg..."
+        {
+            echo ""
+            echo "# Added by Shex installer"
+            echo "export PATH=\"\$PATH:$user_bin\""
+        } >> "$shell_cfg"
+        echo -e "\033[0;32mAdded to PATH in $shell_cfg.\033[0m"
+    fi
+
+    echo "Please run 'source $shell_cfg' to use 'shex' in this shell."
+}
+
 if [ "$IS_LOCAL" = true ]; then
     # Update source code if git repo
     if [ -d ".git" ]; then
@@ -66,40 +112,6 @@ else
     
     if [ -f "$USER_BIN/shex" ]; then
         echo "Found executable at: $USER_BIN/shex"
-        
-        # Detect shell config
-        SHELL_CFG=""
-        case "$SHELL" in
-        */zsh)
-            SHELL_CFG="$HOME/.zshrc"
-            ;;
-        */bash)
-            if [ -f "$HOME/.bashrc" ]; then
-                SHELL_CFG="$HOME/.bashrc"
-            elif [ -f "$HOME/.bash_profile" ]; then
-                SHELL_CFG="$HOME/.bash_profile"
-            fi
-            ;;
-        *)
-            if [ -f "$HOME/.profile" ]; then
-                SHELL_CFG="$HOME/.profile"
-            fi
-            ;;
-        esac
-
-        if [ -n "$SHELL_CFG" ]; then
-            if ! grep -q "$USER_BIN" "$SHELL_CFG"; then
-                echo "Adding '$USER_BIN' to $SHELL_CFG..."
-                echo "" >> "$SHELL_CFG"
-                echo "# Added by Shex installer" >> "$SHELL_CFG"
-                echo "export PATH=\"\$PATH:$USER_BIN\"" >> "$SHELL_CFG"
-                echo -e "\033[0;32mAdded to PATH in $SHELL_CFG.\033[0m"
-                echo "Please restart your shell or run 'source $SHELL_CFG' to use 'shex'."
-            else
-                 echo "'$USER_BIN' is already in $SHELL_CFG"
-            fi
-        else
-            echo "Could not detect shell configuration file. Please add '$USER_BIN' to your PATH manually."
-        fi
+        add_user_bin_to_path "$USER_BIN"
     fi
 fi
