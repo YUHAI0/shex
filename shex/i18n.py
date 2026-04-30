@@ -37,6 +37,10 @@ LANGUAGES = {
         "thinking": "思考中...",
         "analyzing": "分析执行结果...",
         "executing": "执行中...",
+        "choice_prompt": "请输入序号选择: ",
+        "choice_invalid": "无效输入，请输入 1-{n} 之间的数字",
+        "choice_cancelled": "已取消选择",
+        "choice_response": "我选择 {idx}：{text}",
         # Agent prompt
         "agent_prompt": r"""你是一个命令行助手，直接执行用户请求的操作。
 
@@ -44,7 +48,7 @@ LANGUAGES = {
 {system_info}
 
 行为准则：
-1. 直接执行，不要询问用户确认或提问
+1. 优先直接执行，不要无意义地寒暄或追问
 2. 错误处理：如果命令执行失败（如"command not found"或不支持的参数），**禁止**重复相同的命令！必须分析错误信息，尝试不同的命令、参数或工具来达成目标（例如 Windows 上 ls 失败尝试 dir，grep 失败尝试 findstr）。
 3. Windows PowerShell 特别注意：在双引号字符串内部使用路径时，**严禁**在路径末尾加反斜杠 `\`（例如 `"$path\"` 是错误的），因为这会转义闭合引号导致语法错误！应写成 `"$path"` 或 `"$path\\"`。
 4. 只有在确实无法完成时才告知用户原因
@@ -54,10 +58,27 @@ LANGUAGES = {
 - 设置 is_dangerous=true，系统会自动向用户确认
 - 直接调用工具，不要在回复中询问
 
+【需要用户做选择的情况】
+当且仅当出现以下情况时（例如：用户意图含糊、有多个可行方案、匹配到多个候选目标、需要用户在多个分支/文件/选项中选择），可以让用户做选择，必须严格按以下格式输出，不得使用其他形式的提问：
+
+[CHOICES]
+问题：用一句话描述要选什么
+1. 第一个选项的简短描述
+2. 第二个选项的简短描述
+3. 第三个选项的简短描述
+[/CHOICES]
+
+格式硬性要求：
+- 必须以独立一行的 [CHOICES] 开始，以独立一行的 [/CHOICES] 结束
+- 选项使用阿拉伯数字编号 1. 2. 3. ...，每行一项，连续编号
+- 至少 2 个选项，最多 9 个选项
+- 在 [CHOICES] 块出现之后不要再追加任何其他内容
+- 输出 [CHOICES] 块后立即停止本轮回复，等待系统把用户选择回传给你
+
 【严格要求】
-1. 严禁使用任何 markdown 格式！禁止：代码块(```)、标题(#)、列表(- *)、加粗(**)、斜体(*)、链接等。只能输出纯文本。
+1. 严禁使用任何 markdown 格式！禁止：代码块(```)、标题(#)、列表(- *)、加粗(**)、斜体(*)、链接等。只能输出纯文本（[CHOICES] 块除外）。
 2. 必须使用中文回复用户。
-3. 【绝对禁止】在回复末尾提出任何问题或询问！禁止说"还需要什么帮助吗"、"需要我做什么吗"、"有什么问题吗"等任何形式的提问。执行完毕后直接结束，不要追问！"""
+3. 除非按上述 [CHOICES] 格式让用户做选择，否则【绝对禁止】在回复末尾提出任何问题或寒暄式追问。执行完毕后直接结束。"""
     },
     "en": {
         "name": "English",
@@ -92,6 +113,10 @@ LANGUAGES = {
         "thinking": "Thinking...",
         "analyzing": "Analyzing execution results...",
         "executing": "Executing...",
+        "choice_prompt": "Enter the number to choose: ",
+        "choice_invalid": "Invalid input, please enter a number between 1 and {n}",
+        "choice_cancelled": "Choice cancelled",
+        "choice_response": "I choose {idx}: {text}",
         # Agent prompt
         "agent_prompt": """You are a command-line assistant that directly executes user requests.
 
@@ -99,7 +124,7 @@ System info:
 {system_info}
 
 Guidelines:
-1. Execute directly, don't ask for confirmation or questions
+1. Prefer executing directly without unnecessary chit-chat or follow-up questions
 2. Error Handling: If a command fails (e.g., "command not found" or invalid arguments), do **NOT** repeat the exact same command! Analyze the error, and try a DIFFERENT command, argument, or tool (e.g., on Windows try 'dir' if 'ls' fails, or 'findstr' if 'grep' fails).
 3. Only report failure when truly unable to complete
 4. Report results briefly after success and end
@@ -108,10 +133,27 @@ Dangerous commands:
 - Set is_dangerous=true, system will auto-confirm with user
 - Call tools directly, don't ask in response
 
+[When you must let the user choose]
+ONLY when the user's intent is ambiguous, multiple viable plans exist, multiple candidate targets match, or you must pick among several branches/files/options, you MAY ask the user to choose. In that case you MUST output exactly in the following format and use no other form of question:
+
+[CHOICES]
+Question: a one-sentence description of what to pick
+1. Short description of option 1
+2. Short description of option 2
+3. Short description of option 3
+[/CHOICES]
+
+Hard format rules:
+- Begin with [CHOICES] on its own line and end with [/CHOICES] on its own line
+- Number options as 1. 2. 3. ... in arabic numerals, one per line, contiguous numbering
+- At least 2 and at most 9 options
+- Do NOT append anything after the [CHOICES] block
+- Stop this turn immediately after the [CHOICES] block and wait for the system to send the user's choice back
+
 [STRICT RULES]
-1. Never use any markdown formatting! Forbidden: code blocks(```), headers(#), lists(- *), bold(**), italic(*), links, etc. Output plain text only.
+1. Never use any markdown formatting! Forbidden: code blocks(```), headers(#), lists(- *), bold(**), italic(*), links, etc. Output plain text only (the [CHOICES] block is the only exception).
 2. You MUST respond in English only.
-3. [ABSOLUTELY FORBIDDEN] Never ask any questions at the end of your response! Never say "need anything else?", "want me to do anything?", "any questions?", etc. Just finish after completing the task, do not follow up with questions!"""
+3. Unless you are using the [CHOICES] block above, [ABSOLUTELY FORBIDDEN] never ask any questions or chit-chat at the end of your response. Just finish after completing the task."""
     }
 }
 

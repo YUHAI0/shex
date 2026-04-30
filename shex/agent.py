@@ -4,11 +4,111 @@ Shex Agent 核心模块
 """
 
 import json
-from typing import Callable, List
+import re
+from typing import Callable, List, Optional, Tuple
 from openai import OpenAI
 from .config import AgentConfig
 from .tools import TOOLS, execute_command, get_system_info
 from .i18n import t
+
+
+# 选项块标签：模型按提示词约定输出 [CHOICES]...[/CHOICES]
+_CHOICES_OPEN = "[CHOICES]"
+_CHOICES_CLOSE = "[/CHOICES]"
+
+# 用于从完整内容中提取 [CHOICES] 块（懒匹配，DOTALL 跨行）
+_CHOICES_BLOCK_RE = re.compile(r"\[CHOICES\](.*?)\[/CHOICES\]", re.DOTALL)
+# 用于解析每行编号选项：1. xxx / 1) xxx / 1、xxx
+_CHOICES_ITEM_RE = re.compile(r"^\s*(\d+)\s*[\.\)、]\s*(.+?)\s*$")
+
+
+class _StreamTagFilter:
+    """
+    流式标签过滤器。
+
+    把流式 chunk 投喂进来，原样返回应该展示给用户的字符，
+    但会精确吃掉 [CHOICES] 与 [/CHOICES] 标签本身（以及紧随其后的一个换行符），
+    让用户看到的内容更干净。能正确处理标签被切片到不同 chunk 之间的情况。
+    """
+
+    _TAGS = (_CHOICES_CLOSE, _CHOICES_OPEN)  # 较长的优先尝试匹配
+
+    def __init__(self):
+        self._buf = ""
+
+    def feed(self, text: str) -> str:
+        if not text:
+            return ""
+        self._buf += text
+        out_parts: List[str] = []
+        i = 0
+        n = len(self._buf)
+        while i < n:
+            ch = self._buf[i]
+            if ch == "[":
+                # 1) 是否是某个标签的完整匹配
+                matched_tag: Optional[str] = None
+                for tag in self._TAGS:
+                    if self._buf.startswith(tag, i):
+                        matched_tag = tag
+                        break
+                if matched_tag is not None:
+                    j = i + len(matched_tag)
+                    # 吃掉标签后紧邻的一个换行（让上下文更紧凑）
+                    if j < n and self._buf[j] == "\n":
+                        j += 1
+                    i = j
+                    continue
+                # 2) 是否为某个标签的前缀（数据未到齐），停下来等下一块
+                rest = self._buf[i:]
+                if any(tag.startswith(rest) for tag in self._TAGS):
+                    break
+            out_parts.append(ch)
+            i += 1
+        # 已消费的内容从 buffer 移除，未决定的尾部保留
+        self._buf = self._buf[i:]
+        return "".join(out_parts)
+
+    def flush(self) -> str:
+        """流结束时把 buffer 中残留的内容一次性吐出。"""
+        rest = self._buf
+        self._buf = ""
+        return rest
+
+
+def _parse_choices(text: str) -> Optional[Tuple[str, List[str]]]:
+    """
+    从完整内容里提取最后一个 [CHOICES] 块。
+    返回 (question, options)；若不存在合法选项块则返回 None。
+    """
+    if not text or _CHOICES_OPEN not in text:
+        return None
+    matches = list(_CHOICES_BLOCK_RE.finditer(text))
+    if not matches:
+        return None
+    block = matches[-1].group(1)
+
+    question_lines: List[str] = []
+    options: List[str] = []
+    for line in block.splitlines():
+        item_match = _CHOICES_ITEM_RE.match(line)
+        if item_match:
+            options.append(item_match.group(2).strip())
+            continue
+        stripped = line.strip()
+        if stripped and not options:
+            question_lines.append(stripped)
+
+    if len(options) < 2:
+        return None
+
+    question = " ".join(question_lines).strip()
+    # 去掉常见的"问题："前缀，让交互更整洁
+    for prefix in ("问题：", "问题:", "Question:", "Question："):
+        if question.startswith(prefix):
+            question = question[len(prefix):].strip()
+            break
+    return question, options
 
 
 class ShexAgent:
@@ -27,6 +127,7 @@ class ShexAgent:
         self.confirm_fn = None  # 危险命令确认函数
         self.stream_fn = None   # 流式输出函数
         self.continue_fn = None # 询问是否继续重试函数
+        self.choice_fn = None   # 让用户做编号选择的函数
         self.start_spinner = None # 启动加载动画函数
         self.stop_spinner = None  # 停止加载动画函数
         self.next_spinner_message = None # 下一次加载动画的消息
@@ -51,6 +152,16 @@ class ShexAgent:
         """设置询问是否继续重试函数"""
         self.continue_fn = fn
 
+    def set_choice_fn(self, fn: Callable[[str, List[str]], Optional[str]]):
+        """
+        设置“让用户做编号选择”回调。
+
+        回调签名：(question: str, options: List[str]) -> Optional[str]
+            - 返回拼接好的字符串将作为下一轮的 user 消息发回给大模型
+            - 返回 None 表示用户取消，本次对话直接结束
+        """
+        self.choice_fn = fn
+
     def set_spinner(self, start_fn: Callable[[str], None], stop_fn: Callable[[], None]):
         """设置加载动画函数"""
         self.start_spinner = start_fn
@@ -68,6 +179,25 @@ class ShexAgent:
             stream=stream
         )
     
+    def _handle_choices(self, content: str) -> Optional[str]:
+        """
+        若模型在 content 中给出了 [CHOICES] 块，则唤起 choice_fn 让用户选择。
+
+        返回值：
+            - None：没有选项块、未注册回调，或用户取消选择 —— 调用方应正常结束
+            - str：用户选择后要回传给模型的下一轮 user 消息文本
+        """
+        if not self.choice_fn:
+            return None
+        parsed = _parse_choices(content)
+        if parsed is None:
+            return None
+        question, options = parsed
+        try:
+            return self.choice_fn(question, options)
+        except KeyboardInterrupt:
+            return None
+
     def _handle_tool_call(self, tool_call) -> dict:
         """处理工具调用"""
         if tool_call.function.name == "execute_command":
@@ -125,6 +255,7 @@ class ShexAgent:
             # 调用大模型
             if self.stream_fn:
                 # 流式输出
+                stream_filter = _StreamTagFilter()
                 try:
                     if self.start_spinner:
                         msg = self.next_spinner_message or (t("thinking") if t else "Thinking...")
@@ -148,7 +279,9 @@ class ShexAgent:
                         
                         if delta.content:
                             full_content += delta.content
-                            self.stream_fn(delta.content)
+                            visible = stream_filter.feed(delta.content)
+                            if visible:
+                                self.stream_fn(visible)
                         
                         if delta.tool_calls:
                             for tc in delta.tool_calls:
@@ -174,7 +307,12 @@ class ShexAgent:
                     if self.stop_spinner:
                         self.stop_spinner()
                     raise
-                
+
+                # 把过滤器残余字符吐出（流式输出收尾）
+                tail = stream_filter.flush()
+                if tail:
+                    self.stream_fn(tail)
+
                 # 构建 assistant 消息
                 assistant_message = {"role": "assistant", "content": full_content or None}
                 if tool_calls:
@@ -195,7 +333,15 @@ class ShexAgent:
                 if not tool_calls or not any(tc["id"] for tc in tool_calls):
                     if full_content:
                         self.stream_fn("\n")
-                    return full_content
+                    # 检查模型是否给出了 [CHOICES] 块，等待用户做选择
+                    follow_up = self._handle_choices(full_content)
+                    if follow_up is None:
+                        return full_content
+                    # 用户已选择，作为新的 user 消息继续与模型对话
+                    self.messages.append({"role": "user", "content": follow_up})
+                    retry_count = 0
+                    self.next_spinner_message = t("thinking")
+                    continue
                 
                 # 处理工具调用
                 class ToolCall:
@@ -260,7 +406,13 @@ class ShexAgent:
                 })
                 
                 if not message.tool_calls:
-                    return message.content or ""
+                    follow_up = self._handle_choices(message.content or "")
+                    if follow_up is None:
+                        return message.content or ""
+                    self.messages.append({"role": "user", "content": follow_up})
+                    retry_count = 0
+                    self.next_spinner_message = t("thinking")
+                    continue
                 
                 for tool_call in message.tool_calls:
                     result = self._handle_tool_call(tool_call)

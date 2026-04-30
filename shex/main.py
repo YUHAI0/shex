@@ -233,6 +233,37 @@ def confirm_continue(retry_count: int) -> bool:
             return False
 
 
+def ask_choice(question: str, options: list):
+    """
+    展示模型给出的编号选项并等待用户输入选择。
+
+    返回值会作为下一轮 user 消息回传给模型；返回 None 表示用户取消。
+    """
+    from .i18n import t
+    n = len(options)
+    while True:
+        try:
+            raw = input(colorize(t('choice_prompt'), "yellow")).strip()
+        except EOFError:
+            print(colorize(f"\n{t('choice_cancelled')}", "yellow"))
+            return None
+        if not raw:
+            continue
+        # q/quit/exit 视为取消
+        if raw.lower() in ('q', 'quit', 'exit'):
+            print(colorize(t('choice_cancelled'), "yellow"))
+            return None
+        if raw.isdigit():
+            idx = int(raw)
+            if 1 <= idx <= n:
+                chosen = options[idx - 1]
+                # 回显用户选择
+                print(colorize(f"→ {idx}. {chosen}", "green"))
+                # 拼出明确的下一轮 user 消息，让模型清楚识别
+                return t('choice_response', idx=idx, text=chosen)
+        print(colorize(t('choice_invalid', n=n), "red"))
+
+
 def main():
     """主函数"""
     # 首次运行时选择语言
@@ -316,6 +347,7 @@ def main():
         agent.set_confirm_fn(confirm_dangerous)
         agent.set_stream_fn(lambda x: print(x, end='', flush=True))
         agent.set_continue_fn(confirm_continue)
+        agent.set_choice_fn(ask_choice)
 
         spinner = Spinner()
         agent.set_spinner(spinner.start, spinner.stop)
